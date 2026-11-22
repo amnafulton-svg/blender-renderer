@@ -6,6 +6,7 @@ on:
       frames: {description: "total frames", default: "250"}
       samples: {description: "Cycles samples", default: "24"}
       fps: {description: "frames per second", default: "25"}
+      engine: {description: "CYCLES or EEVEE", default: "CYCLES"}
 env:
   BLENDER: "5.2.4"
 jobs:
@@ -48,15 +49,26 @@ jobs:
             echo "$(cat sum)  b.tar.xz" | sha256sum -c -
             mkdir blender && tar xf b.tar.xz -C blender --strip-components=1 && rm b.tar.xz
           fi
-          sudo apt-get install -y -qq libegl1 libxkbcommon0 libsm6 libxi6 libxrender1 libxxf86vm1 libxfixes3 >/dev/null || true
+          sudo apt-get update -qq >/dev/null || true
+          sudo apt-get install -y -qq libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1 xvfb libxkbcommon0 libsm6 libxi6 libxrender1 libxxf86vm1 libxfixes3 >/dev/null || true
       - name: Render my frames
+        env:
+          BL_ENGINE: ${{ inputs.engine }}
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
         run: |
           N=${{ inputs.frames }}; W=20; K=${{ matrix.worker }}
           F0=$(( K*N/W + 1 )); F1=$(( (K+1)*N/W ))
           echo "worker $K: frames $F0-$F1 on $(nproc) cores"
           s=$(date +%s)
-          ./blender/blender -b -P scenes/${{ inputs.scene }} -- $PWD/out $F0 $F1 ${{ inputs.samples }} > log.txt 2>&1 || { tail -40 log.txt; exit 1; }
-          echo "worker $K: $(( $(date +%s)-s ))s for $((F1-F0+1)) frames" | tee out/time_$K.txt
+          run() { ./blender/blender -b -P scenes/${{ inputs.scene }} -- $PWD/out $F0 $F1 ${{ inputs.samples }} > log.txt 2>&1; }
+          if ! run; then
+            tail -25 log.txt; echo "--- retry under a virtual X display"
+            s=$(date +%s); xvfb-run -a -s "-screen 0 1920x1080x24" ./blender/blender -b -P scenes/${{ inputs.scene }} -- $PWD/out $F0 $F1 ${{ inputs.samples }} > log.txt 2>&1 || { tail -40 log.txt; exit 1; }
+          fi
+          grep -m1 ENGINE log.txt || true
+          grep -m3 -iE "llvmpipe|renderer:|GPU:" log.txt || true
+          echo "worker $K ${{ inputs.engine }}: $(( $(date +%s)-s ))s for $((F1-F0+1)) frames" | tee out/time_$K.txt
       - uses: actions/upload-artifact@v4
         with: {name: "frames-${{ matrix.worker }}", path: out/, retention-days: 3}
   video:
