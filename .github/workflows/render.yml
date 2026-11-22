@@ -9,7 +9,23 @@ on:
 env:
   BLENDER: "5.2.4"
 jobs:
+  setup:   # download Blender once into the cache, so 20 workers don't hit blender.org at the same time
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache@v4
+        with:
+          path: blender
+          key: blender-${{ env.BLENDER }}
+      - run: |
+          if [ ! -x blender/blender ]; then
+            V=${BLENDER%.*}
+            curl -sfL --retry 6 --retry-all-errors --retry-delay 10 -o b.tar.xz https://download.blender.org/release/Blender$V/blender-$BLENDER-linux-x64.tar.xz
+            curl -sfL --retry 6 --retry-all-errors https://download.blender.org/release/Blender$V/blender-$BLENDER.sha256 | grep linux-x64.tar.xz | sed 's/ .*//' > sum
+            echo "$(cat sum)  b.tar.xz" | sha256sum -c -
+            mkdir blender && tar xf b.tar.xz -C blender --strip-components=1 && rm b.tar.xz
+          fi
   frames:
+    needs: setup
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -26,8 +42,9 @@ jobs:
         run: |
           if [ ! -x blender/blender ]; then
             V=${BLENDER%.*}
-            curl -sfL -o b.tar.xz https://download.blender.org/release/Blender$V/blender-$BLENDER-linux-x64.tar.xz
-            curl -sfL https://download.blender.org/release/Blender$V/blender-$BLENDER.sha256 | grep linux-x64.tar.xz | sed 's/ .*//' > sum
+            sleep $(( ${{ matrix.worker }} * 3 ))
+            curl -sfL --retry 6 --retry-all-errors --retry-delay 10 -o b.tar.xz https://download.blender.org/release/Blender$V/blender-$BLENDER-linux-x64.tar.xz
+            curl -sfL --retry 6 --retry-all-errors https://download.blender.org/release/Blender$V/blender-$BLENDER.sha256 | grep linux-x64.tar.xz | sed 's/ .*//' > sum
             echo "$(cat sum)  b.tar.xz" | sha256sum -c -
             mkdir blender && tar xf b.tar.xz -C blender --strip-components=1 && rm b.tar.xz
           fi
