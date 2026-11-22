@@ -67,6 +67,7 @@ jobs:
         with: {pattern: "frames-*", path: all, merge-multiple: true}
       - name: Encode
         run: |
+          command -v ffmpeg || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null; }
           cat all/time_*.txt | sort -V
           ls all/*.png | wc -l
           ffmpeg -loglevel error -y -framerate ${{ inputs.fps }} -i all/f_%04d.png -c:v libx264 -crf 18 -pix_fmt yuv420p video.mp4
